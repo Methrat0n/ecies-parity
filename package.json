@@ -6,7 +6,7 @@
   "browser": "browser.js",
   "scripts": {
     "install": "node-gyp rebuild || exit 0",
-    "test": "mocha && karma start",
+    "test": "mocha",
     "m": "mocha",
     "k": "karma start",
     "kc": "karma start --browsers Chromium",

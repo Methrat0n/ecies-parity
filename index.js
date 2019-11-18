@@ -29,9 +29,6 @@ function assert(condition, message) {
   }
 }
 
-// Implemented in parity
-var PARITY_DEFAULT_HMAC = Buffer.from([0,0]);
-
 function sha256(msg) {
   return crypto.createHash("sha256").update(msg).digest();
 }
@@ -40,7 +37,7 @@ function aes128CtrEncrypt(iv, key, plaintext) {
   var cipher = crypto.createCipheriv("aes-128-ctr", key, iv);
   var firstChunk = cipher.update(plaintext);
   var secondChunk = cipher.final();
-  return Buffer.concat([firstChunk, secondChunk]);
+  return Buffer.concat([iv, firstChunk, secondChunk]);
 }
 
 function aes128CtrDecrypt(iv, key, ciphertext) {
@@ -59,8 +56,8 @@ function equalConstTime(b1, b2) {
   if (b1.length !== b2.length) {
     return false;
   }
-  var res = 0;
-  for (var i = 0; i < b1.length; i++) {
+  let res = 0;
+  for (let i = 0; i < b1.length; i++) {
     res |= b1[i] ^ b2[i];  // jshint ignore:line
   }
   return res === 0;
@@ -83,12 +80,12 @@ var kdf = exports.kdf = async function(secret, outputLength) {
   let ctr = 1;
   let written = 0; 
   let result = Buffer.from('');
-  while (written < outputLength) { 
-    let ctrs = Buffer.from([ctr >> 24, ctr >> 16, ctr >> 8, ctr]);
-    let hashResult = await sha256(Buffer.concat([ctrs,secret]));
+  while (written < outputLength) {
+    let ctrs = Buffer.from([ctr >> 24, ctr >> 16, ctr >> 8, ctr])
+    let hashResult = await sha256(Buffer.concat([ctrs,secret]))
     result = Buffer.concat([result, hashResult])
-    written += 32; 
-    ctr +=1;
+    written += 32
+    ctr +=1
   }
   return result;
 }
@@ -174,22 +171,21 @@ var derive = exports.derive = function(privateKeyA, publicKeyB) {
  * @param {?{?iv: Buffer, ?ephemPrivateKey: Buffer}} opts - You may also
  * specify initialization vector (16 bytes) and ephemeral private key
  * (32 bytes) to get deterministic results.
- * @return {Promise.<Ecies>} - A promise that resolves with the ECIES
+ * @return {Promise.<Buffer>} - A promise that resolves with the ECIES
  * structure on successful encryption and rejects on failure.
  */
 exports.encrypt = async function(publicKeyTo, msg, opts) {
   opts = opts || {};
-  let  ephemPrivateKey = opts.ephemPrivateKey || crypto.randomBytes(32);
-  let ephemPublicKey = await getPublic(ephemPrivateKey);
+  let ephemPrivateKey = opts.ephemPrivateKey || crypto.randomBytes(32);
   let sharedPx = await derive(ephemPrivateKey, publicKeyTo);
   let hash = await kdf(sharedPx, 32);
-  let iv = opts.iv || crypto.randomBytes(16);
   let encryptionKey = hash.slice(0, 16);
-  let macKey = await sha256(hash.slice(16));
+  let iv = opts.iv || crypto.randomBytes(16);
+  let macKey = sha256(hash.slice(16));
   let ciphertext = aes128CtrEncrypt(iv, encryptionKey, msg);
-  let dataToMac = Buffer.concat([iv, ciphertext, PARITY_DEFAULT_HMAC]);
-  let HMAC = await hmacSha256(macKey, dataToMac);
-  return Buffer.concat([ephemPublicKey,iv,ciphertext,HMAC]);
+  let HMAC = hmacSha256(macKey, ciphertext);
+  let ephemPublicKey = getPublic(ephemPrivateKey)
+  return Buffer.concat([ephemPublicKey,ciphertext,HMAC]);
 };
 
 /**
@@ -201,7 +197,7 @@ exports.encrypt = async function(publicKeyTo, msg, opts) {
  * plaintext on successful decryption and rejects on failure.
  */
 exports.decrypt = async function(privateKey, encrypted) {
-  let metaLength = 1 + 64 + 16 + 32; 
+  let metaLength = 1 + 64 + 16 + 32;
   assert(encrypted.length > metaLength, "Invalid Ciphertext. Data is too small")
   assert(encrypted[0] >= 2 && encrypted[0] <= 4, "Not valid ciphertext.")
   // deserialise
@@ -217,9 +213,8 @@ exports.decrypt = async function(privateKey, encrypted) {
   let hash = await kdf(px,32);
   let encryptionKey = hash.slice(0, 16);
   let macKey = await sha256(hash.slice(16));
-  let dataToMac = Buffer.concat([cipherAndIv, PARITY_DEFAULT_HMAC]);
-  let currentHMAC = await hmacSha256(macKey, dataToMac);
-  assert(equalConstTime(currentHMAC,msgMac), "Incorrect MAC");
+  let currentHMAC = await hmacSha256(macKey, cipherAndIv);
+  assert(equalConstTime(currentHMAC, msgMac), "Incorrect MAC");
   // decrypt message
   let plainText = await aes128CtrDecrypt(iv, encryptionKey, ciphertext);
   return Buffer.from(new Uint8Array(plainText));

@@ -12,9 +12,6 @@ var ec = new EC("secp256k1");
 var cryptoObj = global.crypto || global.msCrypto || {};
 var subtle = cryptoObj.subtle || cryptoObj.webkitSubtle;
 
-// Implemented in parity
-var PARITY_DEFAULT_HMAC = Buffer.from([0,0]);
-
 function assert(condition, message) {
   if (!condition) {
     throw new Error(message || "Assertion failed");
@@ -63,7 +60,7 @@ function getAes(op) {
       var encAlgorithm = {
         name: "AES-CTR",
         counter: counter,
-        length: 128,
+        length: 128
         };
       return subtle[op](encAlgorithm, cryptoKey, data);
     }).then(function(result) {
@@ -139,23 +136,22 @@ var derive = exports.derive = function(privateKeyA, publicKeyB) {
   });
 };
 
-
 // Encrypt AES-128-CTR and serialise as in Parity
 // Serialisation: <ephemPubKey><IV><CipherText><HMAC>
 exports.encrypt = async function(publicKeyTo, msg, opts) {
   assert(subtle, "WebCryptoAPI is not available");
   opts = opts || {};
   let ephemPrivateKey = opts.ephemPrivateKey || randomBytes(32);
-  let ephemPublicKey = getPublic(ephemPrivateKey);
   let sharedPx = await derive(ephemPrivateKey, publicKeyTo);
   let hash = await kdf(sharedPx, 32);
   let iv = opts.iv || randomBytes(16);
   let encryptionKey = hash.slice(0, 16);
   let macKey = await sha256(hash.slice(16));
   let ciphertext = await aesCtrEncrypt(iv, encryptionKey, msg);
-  let dataToMac = Buffer.concat([iv, ciphertext, PARITY_DEFAULT_HMAC]);
-  let HMAC = await hmacSha256Sign(macKey, dataToMac);
-  return Buffer.concat([ephemPublicKey,iv,ciphertext,HMAC]);
+  let ivCipherText = Buffer.concat([iv, ciphertext])
+  let HMAC = await hmacSha256Sign(macKey, ivCipherText);
+  let ephemPublicKey = getPublic(ephemPrivateKey);
+  return Buffer.concat([ephemPublicKey, ivCipherText, HMAC]);
 };
 
 // Decrypt serialised AES-128-CTR
@@ -177,8 +173,7 @@ exports.decrypt = async function(privateKey, encrypted) {
   var hash = await kdf(px,32);
   var encryptionKey = hash.slice(0, 16);
   var macKey = await sha256(hash.slice(16));
-  var dataToMac = Buffer.concat([cipherAndIv, PARITY_DEFAULT_HMAC]);
-  var hmacGood = await hmacSha256Verify(macKey, dataToMac,msgMac);
+  var hmacGood = await hmacSha256Verify(macKey, cipherAndIv, msgMac);
   assert(hmacGood, "Incorrect MAC");
   // decrypt message
   var plainText = await aesCtrDecrypt(iv, encryptionKey, ciphertext);
