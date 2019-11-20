@@ -1,88 +1,59 @@
 /**
- * Node.js ecies-parity implementation.
- * @module ecies-parity 
- *
- * Note: This module is based off the oirignal eccrypto module
+ * Note: This module is based off the original eccrypto module
  */
 
-"use strict";
+import { createHash, BinaryLike, createCipheriv, createDecipheriv, createHmac } from 'crypto'
+import * as secp256k1 from 'secp256k1' //TODO tiny-secp instead ?
+import  * as ecdh from './build/Release/ecdh'
 
-var promise = typeof Promise === "undefined" ?
-              require("es6-promise").Promise :
-              Promise;
-var crypto = require("crypto");
-// try to use secp256k1, fallback to browser implementation
-try {
-  var secp256k1 = require("secp256k1");
-  var ecdh = require("./build/Release/ecdh");
-} catch (e) {
-  if (process.env.ECCRYPTO_NO_FALLBACK) {
-    throw e;
-  } else {
-    return (module.exports = require("./browser"));
-  }
+const sha256 = (msg: BinaryLike): Buffer =>
+  createHash("sha256").update(msg).digest()
+
+const hmacSha256 = (key: BinaryLike, msg: BinaryLike): Buffer =>
+  createHmac("sha256", key).update(msg).digest()
+
+const aes128CtrEncrypt = (iv: Buffer, key: Buffer, plaintext: Buffer): Buffer => {
+  const cipher = createCipheriv("aes-128-ctr", key, iv)
+  const firstChunk = cipher.update(plaintext)
+  const secondChunk = cipher.final()
+  return Buffer.concat([iv, firstChunk, secondChunk])
 }
 
-function assert(condition, message) {
-  if (!condition) {
-    throw new Error(message || "Assertion failed");
-  }
-}
-
-function sha256(msg) {
-  return crypto.createHash("sha256").update(msg).digest();
-}
-
-function aes128CtrEncrypt(iv, key, plaintext) {
-  var cipher = crypto.createCipheriv("aes-128-ctr", key, iv);
-  var firstChunk = cipher.update(plaintext);
-  var secondChunk = cipher.final();
-  return Buffer.concat([iv, firstChunk, secondChunk]);
-}
-
-function aes128CtrDecrypt(iv, key, ciphertext) {
-  var cipher = crypto.createDecipheriv("aes-128-ctr", key, iv);
+const aes128CtrDecrypt = (iv: Buffer, key: Buffer, ciphertext: Buffer): Buffer => {
+  var cipher = createDecipheriv("aes-128-ctr", key, iv);
   var firstChunk = cipher.update(ciphertext);
   var secondChunk = cipher.final();
   return Buffer.concat([firstChunk, secondChunk]);
 }
 
-function hmacSha256(key, msg) {
-  return crypto.createHmac("sha256", key).update(msg).digest();
-}
-
 // Compare two buffers in constant time to prevent timing attacks.
-function equalConstTime(b1, b2) {
+const equalConstTime = (b1: Buffer, b2: Buffer): boolean => {
   if (b1.length !== b2.length) {
-    return false;
+    return false
   }
   let res = 0;
   for (let i = 0; i < b1.length; i++) {
-    res |= b1[i] ^ b2[i];  // jshint ignore:line
+    res |= b1[i] ^ b2[i]
   }
   return res === 0;
 }
 
-function pad32(msg){
-  var buf;
-  if (msg.length < 32) {
-    buf = new Buffer(32);
-    buf.fill(0);
-    msg.copy(buf, 32 - msg.length);
-    return buf;
-  } else {
-    return msg;
-  }
+const pad32 = (msg: Buffer): Buffer => {
+  if(msg.length < 32) {
+    const buff = new Buffer(32).fill(0)
+    msg.copy(buff, 32 - msg.length)
+    return buff
+  } else return msg
 }
 
 // The KDF as implemented in Parity
-var kdf = exports.kdf = async function(secret, outputLength) { 
+export const kdf = async function(secret: Buffer, outputLength: number): Promise<Buffer> { 
   let ctr = 1;
   let written = 0; 
   let result = Buffer.from('');
   while (written < outputLength) {
-    let ctrs = Buffer.from([ctr >> 24, ctr >> 16, ctr >> 8, ctr])
-    let hashResult = await sha256(Buffer.concat([ctrs,secret]))
+    const ctrs = Buffer.from([ctr >> 24, ctr >> 16, ctr >> 8, ctr])
+    const hashResult = await sha256(Buffer.concat([ctrs,secret]))
     result = Buffer.concat([result, hashResult])
     written += 32
     ctr +=1
@@ -93,32 +64,33 @@ var kdf = exports.kdf = async function(secret, outputLength) {
 /**
  * Compute the public key for a given private key.
  * @param {Buffer} privateKey - A 32-byte private key
- * @return {Buffer} A 65-byte public key.
+ * @return {Buffer | Error } A 65-byte public key or an error if the private key wasn't valid.
  * @function
  */
-var getPublic = exports.getPublic = function(privateKey) {
-  assert(privateKey.length === 32, "Bad private key");
-  // See https://github.com/wanderer/secp256k1-node/issues/46
-  var compressed = secp256k1.publicKeyCreate(privateKey);
-  return secp256k1.publicKeyConvert(compressed, false);
-};
+export const getPublic = (privateKey: Buffer): Buffer | Error => 
+  privateKey.length !== 32
+  ? new Error("Bad private key")
+  : secp256k1.publicKeyConvert(secp256k1.publicKeyCreate(privateKey), false) // See https://github.com/wanderer/secp256k1-node/issues/46
 
 /**
  * Create an ECDSA signature.
  * @param {Buffer} privateKey - A 32-byte private key
  * @param {Buffer} msg - The message being signed
- * @return {Promise.<Buffer>} A promise that resolves with the
+ * @return {Promise.<Buffer | Error>} A promise that resolves with the
  * signature and rejects on bad key or message.
  */
-exports.sign = function(privateKey, msg) {
-  return new promise(function(resolve) {
-    assert(msg.length > 0, "Message should not be empty");
-    assert(msg.length <= 32, "Message is too long");
-    msg = pad32(msg);
-    var sig = secp256k1.signSync(msg, privateKey).signature;
-    resolve(secp256k1.signatureExport(sig));
-  });
-};
+export const sign = (privateKey: Buffer, msg: Buffer): Promise<Buffer> =>
+  new Promise((resolve, reject) => {
+    if(msg.length < 0)
+      reject(new Error("Message should not be empty"))
+    else if(msg.length >= 32)
+      reject(new Error("Message is too long"))
+    else {
+      const padded = pad32(msg)
+      const signed = secp256k1.sign(padded, privateKey).signature
+      resolve(secp256k1.signatureExport(signed));
+    }
+  })
 
 /**
  * Verify an ECDSA signature.
@@ -128,19 +100,23 @@ exports.sign = function(privateKey, msg) {
  * @return {Promise.<null>} A promise that resolves on correct signature
  * and rejects on bad key or signature.
  */
-exports.verify = function(publicKey, msg, sig) {
-  return new promise(function(resolve, reject) {
-    assert(msg.length > 0, "Message should not be empty");
-    assert(msg.length <= 32, "Message is too long");
-    msg = pad32(msg);
-    sig = secp256k1.signatureImport(sig);
-    if (secp256k1.verifySync(msg, sig, publicKey)) {
-     resolve(null);
+export const verify = (publicKey: Buffer, msg: Buffer, sig: Buffer): Promise<null> =>
+  new Promise((resolve, reject) => {
+    if(msg.length < 0) {
+      reject(new Error('Message should not be empty'))
+    } else if(msg.length >= 32) {
+      reject(new Error('Message is too long'))
     } else {
-     reject(new Error("Bad signature"));
-    }
-  });
-};
+      const passed = pad32(msg)
+      const signed = secp256k1.signatureImport(sig)
+
+      if (secp256k1.verify(passed, signed, publicKey)) {
+        resolve(null);
+      } else {
+        reject(new Error("Bad signature"));
+       }
+    } 
+  })
 
 /**
  * Derive shared secret for given private and public keys.
@@ -149,11 +125,10 @@ exports.verify = function(publicKey, msg, sig) {
  * @return {Promise.<Buffer>} A promise that resolves with the derived
  * shared secret (Px, 32 bytes) and rejects on bad key.
  */
-var derive = exports.derive = function(privateKeyA, publicKeyB) {
-  return new promise(function(resolve) {
+export const derive = (privateKeyA: Buffer, publicKeyB: Buffer) =>
+  new Promise(resolve => {
     resolve(ecdh.derive(privateKeyA, publicKeyB));
-  });
-};
+  })
 
 /**
  * Input/output structure for ECIES operations.

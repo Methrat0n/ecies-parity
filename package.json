@@ -1,20 +1,16 @@
 {
-  "name": "ecies-parity",
+  "name": "@rooot/ecies",
   "version": "0.1.0",
-  "description": "JavaScript Elliptic Curve Integrated Encryption Scheme Library - Based of Parity's implementation",
-  "main": "index.js",
-  "browser": "browser.js",
+  "description": "JavaScript Elliptic Curve Integrated Encryption Scheme Library - Based of Geth's implementation",
+  "main": "src/typescript/node.ts",
+  "browser": "stc/typescript/browser.ts",
   "scripts": {
     "install": "node-gyp rebuild || exit 0",
-    "test": "mocha",
-    "m": "mocha",
-    "k": "karma start",
-    "kc": "karma start --browsers Chromium",
-    "kf": "karma start --browsers Firefox"
+    "test": "mocha && karma start"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/sigp/ecies-parity"
+    "url": "https://github.com/Methrat0n/rooot-ecies"
   },
   "keywords": [
     "ecdh",
@@ -26,12 +22,14 @@
     "elliptic",
     "curve"
   ],
-  "author": "Age Manning <Age@AgeManning.com>",
+  "author": "Merlin Goulet <merlingoulet@live.fr>",
   "bugs": {
-    "url": "https://github.com/sigp/ecies-parity/issues"
+    "url": "https://github.com/Methrat0n/rooot-ecies/issues"
   },
-  "homepage": "https://github.com/sigp/ecies-parity",
+  "homepage": "https://github.com/Methrat0n/rooot-ecies",
   "devDependencies": {
+    "@types/node": "^12.12.11",
+    "@types/secp256k1": "^3.5.0",
     "buffer-equal": "^1.0.0",
     "chai": "*",
     "jshint": "^2.9.6",
