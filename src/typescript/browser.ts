@@ -27,22 +27,24 @@ const randomBytes = (size: number): Buffer =>
   crypto.getRandomValues(Buffer.alloc(size))
 
 // Get the browser SHA256 implementation
-export const sha256 = (msg: Int8Array | Int16Array | Int32Array | Uint8Array | Uint16Array | Uint32Array | Uint8ClampedArray | Float32Array | Float64Array | DataView | ArrayBuffer): PromiseLike<Buffer> =>
+const sha256 = (msg: Int8Array | Int16Array | Int32Array | Uint8Array | Uint16Array | Uint32Array | Uint8ClampedArray | Float32Array | Float64Array | DataView | ArrayBuffer): PromiseLike<Buffer> =>
   subtle.digest({name: "SHA-256"}, msg).then(Buffer.from)
 
 // The KDF as implemented in Parity
-export const kdf = async (secret: Buffer, outputLength: number): Promise<Buffer> => { 
-  let ctr = 1;
-  let written = 0; 
-  let result = Buffer.from('');
-  while (written < outputLength) { 
-    const ctrs = Buffer.from([ctr >> 24, ctr >> 16, ctr >> 8, ctr]);
-    const hashResult = await sha256(Buffer.concat([ctrs,secret]));
-    result = Buffer.concat([result, hashResult])
-    written += 32; 
-    ctr +=1;
+export const kdf = (secret: Buffer, outputLength: number): Promise<Buffer> => { 
+  let ctr = 1
+  let written = 0
+  let willBeResult = Promise.resolve(Buffer.from(''))
+  while (written < outputLength) {
+    const ctrs = Buffer.from([ctr >> 24, ctr >> 16, ctr >> 8, ctr])
+    const willBeHashResult = sha256(Buffer.concat([ctrs,secret]))
+    willBeResult = willBeResult.then(result => willBeHashResult.then(hashResult =>
+      Buffer.concat([result, hashResult])
+    ))
+    written += 32
+    ctr +=1
   }
-  return result;
+  return willBeResult;
 }
 
 // AES-128-CTR is used in the Parity implementation
@@ -65,7 +67,7 @@ const hmacSha256Sign = (
   key: Int8Array | Int16Array | Int32Array | Uint8Array | Uint16Array | Uint32Array | Uint8ClampedArray | Float32Array | Float64Array | DataView | ArrayBuffer,
   msg: Int8Array | Int16Array | Int32Array | Uint8Array | Uint16Array | Uint32Array | Uint8ClampedArray | Float32Array | Float64Array | DataView | ArrayBuffer
 ): PromiseLike<Buffer> => {
-  const algorithm = {name: "HMAC", hash: {name: "SHA-256"}}
+  const algorithm = { name: "HMAC", hash: { name: "SHA-256" } }
   return subtle.importKey("raw", key, algorithm, false, ["sign"])
   .then(cryptoKey => subtle.sign(algorithm, cryptoKey, msg))
   .then(Buffer.from)
@@ -135,52 +137,56 @@ export const derive = (privateKeyA: Buffer, publicKeyB: Buffer): Promise<Buffer>
   })
 
 // Encrypt AES-128-CTR and serialise
-export const encrypt = async (publicKeyTo: Buffer, msg: Buffer, opts?: {iv?: Buffer, ephemPrivateKey?: Buffer}): Promise<Buffer> => {
+export const encrypt = (publicKeyTo: Buffer, msg: Buffer, opts?: {iv?: Buffer, ephemPrivateKey?: Buffer}): Promise<Buffer> => {
   opts = opts || {}
   const ephemPrivateKey = opts.ephemPrivateKey || randomBytes(32)
-  const sharedPx = await derive(ephemPrivateKey, publicKeyTo)
-  const hash = await kdf(sharedPx, 32)
+  const willBeSharedPx = derive(ephemPrivateKey, publicKeyTo)
+  const willBeHash = willBeSharedPx.then(sharedPx => kdf(sharedPx, 32))
   const iv = opts.iv || randomBytes(16)
-  const encryptionKey = hash.slice(0, 16)
-  const macKey = await sha256(hash.slice(16))
-  const ciphertext = await aesCtrEncrypt(iv, encryptionKey, msg)
-  const ivCipherText = Buffer.concat([iv, ciphertext])
-  const HMAC = await hmacSha256Sign(macKey, ivCipherText)
-  const ephemPublicKey = await getPublic(ephemPrivateKey)
-  return Buffer.concat([ephemPublicKey, ivCipherText, HMAC])
+  const willBeEncryptionKey = willBeHash.then(hash => hash.slice(0, 16))
+  const willBeMacKey = willBeHash.then(hash =>  sha256(hash.slice(16)))
+  const willBeCipherText = willBeEncryptionKey.then(encryptionKey => aesCtrEncrypt(iv, encryptionKey, msg))
+  const willBeIvCipherText = willBeCipherText.then(cipherText => Buffer.concat([iv, cipherText]))
+  const willBeHMAC = willBeMacKey.then(macKey => willBeIvCipherText.then(ivCipherText => hmacSha256Sign(macKey, ivCipherText)))
+  const willBeEphemPublicKey = getPublic(ephemPrivateKey)
+  return willBeEphemPublicKey.then(ephemPublicKey => willBeIvCipherText.then(ivCipherText => willBeHMAC.then(HMAC =>
+    Buffer.concat([ephemPublicKey, ivCipherText, HMAC])
+  )))
 }
 
 const metaLength = 1 + 64 + 16 + 32; 
 // Decrypt serialised AES-128-CTR
 export const decrypt = (privateKey: Buffer, encrypted: Buffer): Promise<Buffer> => 
-  new Promise(async (resolve, reject) => {
+  new Promise((resolve, reject) => {
     if(encrypted.length <= metaLength)
       reject(new Error(`Invalid Ciphertext. Data is too small, should be more than ${metaLength} bytes`))
     else if(encrypted[0] < 2 && encrypted[0] > 4)
       reject(new Error(`Not a valid ciphertext. It should begin with 2, 3 or 4 but actualy begin with ${encrypted[0]}`))
     else {
       // deserialise
-      const ephemPublicKey = encrypted.slice(0,65);
-      const cipherTextLength = encrypted.length - metaLength; 
-      const iv = encrypted.slice(65,65 + 16);
-      const cipherAndIv = encrypted.slice(65, 65+16+ cipherTextLength);
-      const ciphertext = cipherAndIv.slice(16);
-      const msgMac = encrypted.slice(65+16+ cipherTextLength);
+      const ephemPublicKey = encrypted.slice(0,65)
+      const cipherTextLength = encrypted.length - metaLength;
+      const iv = encrypted.slice(65,65 + 16)
+      const cipherAndIv = encrypted.slice(65, 65+16+ cipherTextLength)
+      const ciphertext = cipherAndIv.slice(16)
+      const msgMac = encrypted.slice(65+16+ cipherTextLength)
 
       // check HMAC
-      const px = await derive(privateKey, ephemPublicKey);
-      const hash = await kdf(px,32);
-      const encryptionKey = hash.slice(0, 16);
-      const macKey = await sha256(hash.slice(16));
-      const isHmacGood = await hmacSha256Verify(macKey, cipherAndIv, msgMac);
-
-      if(!isHmacGood)
-        reject(new Error('Incorrect MAC'))
-      else {
-        // decrypt message
-        const plainText = await aesCtrDecrypt(iv, encryptionKey, ciphertext);
-        resolve(Buffer.from(plainText))
-      }
+      const willBePx = derive(privateKey, ephemPublicKey)
+      const willBeHash = willBePx.then(px => kdf(px, 32))
+      const willBeEncryptionKey = willBeHash.then(hash => hash.slice(0, 16))
+      const willBeMacKey = willBeHash.then(hash => sha256(hash.slice(16)))
+      willBeMacKey.then(macKey => hmacSha256Verify(macKey, cipherAndIv, msgMac))
+      .then(isHmacGood => willBeEncryptionKey.then(encryptionKey => {
+        if(!isHmacGood)
+          reject(new Error('Incorrect MAC'))
+        else {
+          // decrypt message
+          aesCtrDecrypt(iv, encryptionKey, ciphertext).then(plainText =>
+            resolve(Buffer.from(plainText))
+          )
+        }
+      })).catch(reject)
     }
   }
 )

@@ -22,5 +22,5 @@ ecies.decrypt(
   console.log(decrypted.toString())
   console.log(decrypted.toString() === 'Edgewhere')
 }).catch(err => 
-  console.error(err)  
+  console.error(err)
 )
