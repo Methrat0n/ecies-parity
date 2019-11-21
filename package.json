@@ -6,7 +6,7 @@
   "browser": "src/typescript/browser.js",
   "scripts": {
     "test": "mocha 'test/typescript/**/*.specs.ts' --require ts-node/register",
-    "compile": "tsc"
+    "compile": "tsc --declaration"
   },
   "repository": {
     "type": "git",
@@ -51,9 +51,9 @@
     "typescript": "^3.7.2",
     "watchify": "^3.11.1"
   },
+  "dependencies": "//TODO Should be empty and the code use in the library should be integrated in this one",
   "dependencies": {
-    "elliptic": "*",
-    "nan": "*"
+    "elliptic": "*"
   },
   "optionalDependencies": {
     "secp256k1": "*"

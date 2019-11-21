@@ -18,6 +18,6 @@ module.exports = function(config) {
     //logLevel: config.LOG_INFO,
     //autoWatch: true,
     // see https://npmjs.org/browse/keyword/karma-launcher
-    browsers: ["ChromeHeadless"], //TODO should also use firefox in headleass mode but a PR on https://www.npmjs.com/package/karma-firefox-launcher is needed for it to happen
+    browsers: ["ChromeHeadless"], //TODO should also use firefox in headless mode but a PR on https://www.npmjs.com/package/karma-firefox-launcher is needed for it to happen
   })
 }
