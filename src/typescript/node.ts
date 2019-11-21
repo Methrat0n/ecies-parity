@@ -2,9 +2,11 @@
  * Note: This module is based off the original eccrypto module
  */
 
-import { createHash, BinaryLike, createCipheriv, createDecipheriv, createHmac } from 'crypto'
-import * as secp256k1 from 'secp256k1' //TODO tiny-secp instead ?
-import  * as ecdh from './build/Release/ecdh'
+import { createHash, BinaryLike, createCipheriv, createDecipheriv, createHmac, randomBytes } from 'crypto'
+import * as secp256k1 from 'secp256k1' //TODO this dependency can probably be remove
+import { ec as EC } from 'elliptic'
+
+const ec = new EC('secp256k1')
 
 const sha256 = (msg: BinaryLike): Buffer =>
   createHash("sha256").update(msg).digest()
@@ -64,13 +66,14 @@ export const kdf = async function(secret: Buffer, outputLength: number): Promise
 /**
  * Compute the public key for a given private key.
  * @param {Buffer} privateKey - A 32-byte private key
- * @return {Buffer | Error } A 65-byte public key or an error if the private key wasn't valid.
+ * @return {Promise<Buffer>} A promise that resolve with the 65-byte public key or reject on wrong private key.
  * @function
  */
-export const getPublic = (privateKey: Buffer): Buffer | Error => 
+export const getPublic = (privateKey: Buffer): Promise<Buffer> => new Promise((resolve, reject) =>
   privateKey.length !== 32
-  ? new Error("Bad private key")
-  : secp256k1.publicKeyConvert(secp256k1.publicKeyCreate(privateKey), false) // See https://github.com/wanderer/secp256k1-node/issues/46
+  ? reject(new Error("Bad private key"))
+  : resolve(secp256k1.publicKeyConvert(secp256k1.publicKeyCreate(privateKey), false)) // See https://github.com/wanderer/secp256k1-node/issues/46
+)
 
 /**
  * Create an ECDSA signature.
@@ -125,19 +128,21 @@ export const verify = (publicKey: Buffer, msg: Buffer, sig: Buffer): Promise<nul
  * @return {Promise.<Buffer>} A promise that resolves with the derived
  * shared secret (Px, 32 bytes) and rejects on bad key.
  */
-export const derive = (privateKeyA: Buffer, publicKeyB: Buffer) =>
-  new Promise(resolve => {
-    resolve(ecdh.derive(privateKeyA, publicKeyB));
+export const derive = (privateKeyA: Buffer, publicKeyB: Buffer): Promise<Buffer> =>
+  new Promise((resolve, reject) => {
+    if(privateKeyA.length !== 32)
+      reject(new Error(`Bad private key, it should be 32 bytes but it's actualy ${privateKeyA.length} bytes long`))
+    else if(publicKeyB.length !== 65)
+      reject(new Error(`Bad public key, it should be 65 bytes but it's actualy ${publicKeyB.length} bytes long`))
+    else if(publicKeyB[0] !== 4)
+      reject(new Error(`Bad public key, a valid public key would begin with 4`))
+    else {
+      const keyA = ec.keyFromPrivate(privateKeyA);
+      const keyB = ec.keyFromPublic(publicKeyB);
+      const Px = keyA.derive(keyB.getPublic());  // BN instance
+      resolve(Buffer.from(Px.toArray()))
+    }
   })
-
-/**
- * Input/output structure for ECIES operations.
- * @typedef {Object} Ecies
- * @property {Buffer} iv - Initialization vector (16 bytes)
- * @property {Buffer} ephemPublicKey - Ephemeral public key (65 bytes)
- * @property {Buffer} ciphertext - The result of encryption (variable size)
- * @property {Buffer} mac - Message authentication code (32 bytes)
- */
 
 /**
  * Encrypt message for given recepient's public key.
@@ -146,51 +151,56 @@ export const derive = (privateKeyA: Buffer, publicKeyB: Buffer) =>
  * @param {?{?iv: Buffer, ?ephemPrivateKey: Buffer}} opts - You may also
  * specify initialization vector (16 bytes) and ephemeral private key
  * (32 bytes) to get deterministic results.
- * @return {Promise.<Buffer>} - A promise that resolves with the ECIES
- * structure on successful encryption and rejects on failure.
+ * @return {Promise.<Buffer>} - A promise that resolves with the ECIES structure serialized
  */
-exports.encrypt = async function(publicKeyTo, msg, opts) {
+export const encrypt = async (publicKeyTo: Buffer, msg: Buffer, opts?: {iv?: Buffer, ephemPrivateKey?: Buffer}): Promise<Buffer> => {
   opts = opts || {};
-  let ephemPrivateKey = opts.ephemPrivateKey || crypto.randomBytes(32);
-  let sharedPx = await derive(ephemPrivateKey, publicKeyTo);
-  let hash = await kdf(sharedPx, 32);
-  let encryptionKey = hash.slice(0, 16);
-  let iv = opts.iv || crypto.randomBytes(16);
-  let macKey = sha256(hash.slice(16));
-  let ciphertext = aes128CtrEncrypt(iv, encryptionKey, msg);
-  let HMAC = hmacSha256(macKey, ciphertext);
-  let ephemPublicKey = getPublic(ephemPrivateKey)
+  const ephemPrivateKey = opts.ephemPrivateKey || randomBytes(32);
+  const sharedPx = await derive(ephemPrivateKey, publicKeyTo);
+  const hash = await kdf(sharedPx, 32);
+  const encryptionKey = hash.slice(0, 16);
+  const iv = opts.iv || randomBytes(16);
+  const macKey = sha256(hash.slice(16));
+  const ciphertext = aes128CtrEncrypt(iv, encryptionKey, msg);
+  const HMAC = hmacSha256(macKey, ciphertext);
+  const ephemPublicKey = await getPublic(ephemPrivateKey)
   return Buffer.concat([ephemPublicKey,ciphertext,HMAC]);
-};
+}
 
 /**
  * Decrypt message using given private key.
  * @param {Buffer} privateKey - A 32-byte private key of recepient of
  * the mesage
- * @param {Ecies} opts - ECIES structure (result of ECIES encryption)
+ * @param {Ecies} encrypted - ECIES serialized structure (result of ECIES encryption)
  * @return {Promise.<Buffer>} - A promise that resolves with the
  * plaintext on successful decryption and rejects on failure.
  */
-exports.decrypt = async function(privateKey, encrypted) {
-  let metaLength = 1 + 64 + 16 + 32;
-  assert(encrypted.length > metaLength, "Invalid Ciphertext. Data is too small")
-  assert(encrypted[0] >= 2 && encrypted[0] <= 4, "Not valid ciphertext.")
+export const decrypt = async (privateKey: Buffer, encrypted: Buffer): Promise<Buffer> => {
+  const metaLength = 1 + 64 + 16 + 32
+  if(encrypted.length < metaLength)
+    return Promise.reject(new Error('Invalid Ciphertext. Data is too small'))
+  else if(encrypted[0] < 2 && encrypted[0] > 4)
+    return Promise.reject(new Error('Not valid ciphertext.'))
+  
   // deserialise
-  let ephemPublicKey = encrypted.slice(0,65);
-  let cipherTextLength = encrypted.length - metaLength; 
-  let iv = encrypted.slice(65,65 + 16);
-  let cipherAndIv = encrypted.slice(65, 65+16+ cipherTextLength);
-  let ciphertext = cipherAndIv.slice(16);
-  let msgMac = encrypted.slice(65+16+ cipherTextLength);
+  const ephemPublicKey = encrypted.slice(0,65)
+  const cipherTextLength = encrypted.length - metaLength;
+  const iv = encrypted.slice(65,65 + 16)
+  const cipherAndIv = encrypted.slice(65, 65+16+ cipherTextLength)
+  const ciphertext = cipherAndIv.slice(16)
+  const msgMac = encrypted.slice(65+16+ cipherTextLength)
 
   // check HMAC
-  let px = await derive(privateKey, ephemPublicKey);
-  let hash = await kdf(px,32);
-  let encryptionKey = hash.slice(0, 16);
-  let macKey = await sha256(hash.slice(16));
-  let currentHMAC = await hmacSha256(macKey, cipherAndIv);
-  assert(equalConstTime(currentHMAC, msgMac), "Incorrect MAC");
+  const px = await derive(privateKey, ephemPublicKey)
+  const hash = await kdf(px, 32)
+  const encryptionKey = hash.slice(0, 16)
+  const macKey = sha256(hash.slice(16))
+  const currentHMAC = hmacSha256(macKey, cipherAndIv)
+
+  if(!equalConstTime(currentHMAC, msgMac))
+    return Promise.reject('Incorrect MAC')
+
   // decrypt message
-  let plainText = await aes128CtrDecrypt(iv, encryptionKey, ciphertext);
-  return Buffer.from(new Uint8Array(plainText));
-};
+  const plainText = aes128CtrDecrypt(iv, encryptionKey, ciphertext)
+  return Buffer.from(new Uint8Array(plainText))
+}

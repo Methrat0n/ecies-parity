@@ -1,10 +1,10 @@
 // try to use secp256k1, fallback to browser implementation
 try {
-  module.exports = require("./node")
+  module.exports = require("./node.ts")
 } catch (e) {
   if (process.env.ECCRYPTO_NO_FALLBACK) {
-    throw e;
+    throw e
   } else {
-    module.exports = require("../../browser")
+    module.exports = require("./browser")
   }
 }
