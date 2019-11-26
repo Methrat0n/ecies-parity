@@ -84,7 +84,12 @@ const hmacSha256Verify = (
   return keyp.then(cryptoKey => subtle.verify(algorithm, cryptoKey, sig, msg))
 }
 
-// Obtain the public elliptic curve key from a private one
+/**
+ * Compute the public key for a given private key.
+ * @param {Buffer} privateKey - A 32-byte private key
+ * @return {Promise<Buffer>} A promise that resolve with the 65-byte public key or reject on wrong private key.
+ * @function
+ */
 export const getPublic = (privateKey: Buffer): Promise<Buffer> => new Promise((resolve, reject) => {
   if(privateKey.length !== 32)
     reject(new Error('Bad private key'))
@@ -92,8 +97,14 @@ export const getPublic = (privateKey: Buffer): Promise<Buffer> => new Promise((r
     resolve(Buffer.from(ec.keyFromPrivate(privateKey).getPublic('array')))
 })
 
-// ECDSA
-export const sign = (privateKey: Buffer, msg: string | Buffer | number[]): Promise<Buffer> =>
+/**
+ * Create an ECDSA signature.
+ * @param {Buffer} privateKey - A 32-byte private key
+ * @param {Buffer} msg - The message being signed, no more than 32 bytes
+ * @return {Promise.<Buffer>} A promise that resolves with the
+ * signature and rejects on bad key or message.
+ */
+export const sign = (privateKey: Buffer, msg: Buffer): Promise<Buffer> =>
   new Promise((resolve, reject) => {
     if(privateKey.length !== 32)
       reject(new Error('Bad private key'))
@@ -102,11 +113,18 @@ export const sign = (privateKey: Buffer, msg: string | Buffer | number[]): Promi
     else if(msg.length > 32)
       reject(new Error('Message is too long'))
     else
-      resolve(new Buffer(ec.sign(msg, privateKey, { canonical: true }).toDER()))
+      resolve(Buffer.from(ec.sign(msg, privateKey, { canonical: true }).toDER('hex'), 'hex'))
   })
 
-// Verify ECDSA signatures
-export const verify = (publicKey: Buffer, msg: string | Buffer | Uint8Array | number[], sig: EC.Signature | EC.SignatureOptions): Promise<null> => 
+/**
+ * Verify an ECDSA signature.
+ * @param {Buffer} publicKey - A 65-byte public key
+ * @param {Buffer} msg - The message being verified
+ * @param {Buffer} sig - The signature
+ * @return {Promise.<null>} A promise that resolves on correct signature
+ * and rejects on bad key or signature.
+ */
+export const verify = (publicKey: Buffer, msg: Buffer, sig: Buffer): Promise<null> => 
   new Promise((resolve, reject) => {
     if(publicKey.length !== 65 || publicKey[0] !== 4)
       reject(new Error('Bad public key'))
@@ -114,13 +132,19 @@ export const verify = (publicKey: Buffer, msg: string | Buffer | Uint8Array | nu
       reject(new Error('Message should not be empty'))
     else if(msg.length > 32)
       reject(new Error('Message is too long'))
-    else if (!ec.verify(msg, sig, publicKey))
+    else if (!ec.verify(msg, sig.toString('hex') as any, publicKey, 'hex'))
       reject(new Error("Bad signature"))
     else
       resolve(null)
   })
 
-//ECDH 
+/**
+ * Derive shared secret for given private and public keys.
+ * @param {Buffer} privateKey - Sender's private key (32 bytes)
+ * @param {Buffer} publicKey - Recipient's public key (65 bytes)
+ * @return {Promise.<Buffer>} A promise that resolves with the derived
+ * shared secret (Px, 32 bytes) and rejects on bad key.
+ */
 export const derive = (privateKeyA: Buffer, publicKeyB: Buffer): Promise<Buffer> =>
   new Promise((resolve, reject) => {
     if(privateKeyA.length !== 32)
@@ -137,7 +161,15 @@ export const derive = (privateKeyA: Buffer, publicKeyB: Buffer): Promise<Buffer>
     }
   })
 
-// Encrypt AES-128-CTR and serialise
+/**
+ * Encrypt message for given recepient's public key.
+ * @param {Buffer} publicKeyTo - Recipient's public key (65 bytes)
+ * @param {Buffer} msg - The message being encrypted
+ * @param {?{?iv: Buffer, ?ephemPrivateKey: Buffer}} opts - You may also
+ * specify initialization vector (16 bytes) and ephemeral private key
+ * (32 bytes) to get deterministic results.
+ * @return {Promise.<Buffer>} - A promise that resolves with the ECIES structure serialized
+ */
 export const encrypt = (publicKeyTo: Buffer, msg: Buffer, opts?: {iv?: Buffer, ephemPrivateKey?: Buffer}): Promise<Buffer> => {
   opts = opts || {}
   const ephemPrivateKey = opts.ephemPrivateKey || randomBytes(32)
@@ -156,7 +188,14 @@ export const encrypt = (publicKeyTo: Buffer, msg: Buffer, opts?: {iv?: Buffer, e
 }
 
 const metaLength = 1 + 64 + 16 + 32; 
-// Decrypt serialised AES-128-CTR
+/**
+ * Decrypt message using given private key.
+ * @param {Buffer} privateKey - A 32-byte private key of recepient of
+ * the mesage
+ * @param {Ecies} encrypted - ECIES serialized structure (result of ECIES encryption)
+ * @return {Promise.<Buffer>} - A promise that resolves with the
+ * plaintext on successful decryption and rejects on failure.
+ */
 export const decrypt = (privateKey: Buffer, encrypted: Buffer): Promise<Buffer> => 
   new Promise((resolve, reject) => {
     if(encrypted.length <= metaLength)

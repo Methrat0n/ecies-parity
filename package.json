@@ -2,7 +2,8 @@
   "name": "@rooot/ecies",
   "version": "0.1.0",
   "description": "JavaScript Elliptic Curve Integrated Encryption Scheme Library - Based on geth implementation",
-  "main": "src/typescript/index.ts",
+  "main": "dist/src/typescript/node.js",
+  "types": "index.d.ts",
   "browser": "src/typescript/browser.js",
   "scripts": {
     "test": "mocha 'test/typescript/**/*.specs.ts' --require ts-node/register",
