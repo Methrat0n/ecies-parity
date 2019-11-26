@@ -16,11 +16,12 @@ declare global {
 }
 
 const ec = new EC('secp256k1')
-const crypto = window.crypto || window.msCrypto || {}
-const subtle = (crypto.subtle || crypto.webkitSubtle)!
+const crypto = window.crypto || window.msCrypto!
+const subtle: SubtleCrypto = (crypto.subtle || crypto.webkitSubtle)!
 
-if(subtle === undefined) //TODO maybe better ?
-  throw new Error('crypto subtle api unavailable')
+if(subtle === undefined || crypto === undefined) //TODO maybe better ?
+  console.error('crypto and/or subtle api unavailable')
+  //throw new Error('crypto and/or subtle api unavailable')
 
 // Use the browser RNG
 const randomBytes = (size: number): Buffer =>
@@ -84,7 +85,7 @@ const hmacSha256Verify = (
 }
 
 // Obtain the public elliptic curve key from a private one
-export const getPublic = (privateKey: Uint8Array | Buffer | string | number[]): Promise<Buffer> => new Promise((resolve, reject) => {
+export const getPublic = (privateKey: Buffer): Promise<Buffer> => new Promise((resolve, reject) => {
   if(privateKey.length !== 32)
     reject(new Error('Bad private key'))
   else
@@ -92,7 +93,7 @@ export const getPublic = (privateKey: Uint8Array | Buffer | string | number[]): 
 })
 
 // ECDSA
-export const sign = (privateKey: Buffer, msg: string | Buffer | Uint8Array | number[]): Promise<Buffer> =>
+export const sign = (privateKey: Buffer, msg: string | Buffer | number[]): Promise<Buffer> =>
   new Promise((resolve, reject) => {
     if(privateKey.length !== 32)
       reject(new Error('Bad private key'))

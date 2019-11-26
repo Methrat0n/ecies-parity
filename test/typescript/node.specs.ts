@@ -1,6 +1,6 @@
 import * as chai from 'chai'
 import 'mocha'
-import chaiAsPromised = require('chai-as-promised')
+import chaiAsPromised from 'chai-as-promised'
 chai.use(chaiAsPromised)
 chai.should()
 const expect = chai.expect
@@ -282,25 +282,65 @@ describe('ecies', () => {
     })
   })
   describe('decrypt', () => {
-    it('should ')
+    const metaLength = 1 + 64 + 16 + 32
+    it('should accept a 32 bytes private key with an encrypted message', () => {
+      const secret = Buffer.from('b9fc3b425d6c1745b9c963c97e6e1d4c1db7a093a36e0cf7c0bf85dc1130b8a0', 'hex')
+      const encrypted = Buffer.from('041891f11182f69dfd67dc190ccd649445182c6474f69c9f3885c99733b056fb53e1a30b90b6d2a2624449fda885adcba50334024b20081b07f95f3cc92a93dbedccf75890cd7ac088b0810058c272ef25a4028875342c5dfc36b54f156cd26b69109625e5374bc689c79196d98ccc9ad5b7099e6484', 'hex')
+      const found = ecies.decrypt(secret, encrypted)
+
+      return found.should.be.fulfilled
+    })
+    it('should NOT accept a secret key smaller than 32 bytes', () => {
+      const smallerSecret = Buffer.from('b9fc3b425d6c1745b9c963c97e6e1d4c1db7a093a37c0bf85dc1130b8a0', 'hex')
+      const encrypted = Buffer.from('041891f11182f69dfd67dc190ccd649445182c6474f69c9f3885c99733b056fb53e1a30b90b6d2a2624449fda885adcba50334024b20081b07f95f3cc92a93dbedccf75890cd7ac088b0810058c272ef25a4028875342c5dfc36b54f156cd26b69109625e5374bc689c79196d98ccc9ad5b7099e6484', 'hex')
+      const found = ecies.decrypt(smallerSecret, encrypted)
+
+      return expect(found).to.be.rejectedWith(`Bad private key, it should be 32 bytes but it's actualy ${smallerSecret.length} bytes long`)
+    })
+    it('should NOT accept a secret key larger than 32 bytes', () => {
+      const largerSecret = Buffer.from('b9fc3b425d6c1745b9c963c97e6e1d4c1db7a093a36e0cf7c0bf85dc1130b8a05773623846', 'hex')
+      const encrypted = Buffer.from('041891f11182f69dfd67dc190ccd649445182c6474f69c9f3885c99733b056fb53e1a30b90b6d2a2624449fda885adcba50334024b20081b07f95f3cc92a93dbedccf75890cd7ac088b0810058c272ef25a4028875342c5dfc36b54f156cd26b69109625e5374bc689c79196d98ccc9ad5b7099e6484', 'hex')
+      const found = ecies.decrypt(largerSecret, encrypted)
+
+      return expect(found).to.be.rejectedWith(`Bad private key, it should be 32 bytes but it's actualy ${largerSecret.length} bytes long`)
+    })
+    it('should NOT accept an encrypted msg begginning with a false public key', () => {
+      const largerSecret = Buffer.from('b9fc3b425d6c1745b9c963c97e6e1d4c1db7a093a36e0cf7c0bf85dc1130b8a05773623846', 'hex')
+      const encryptedWithFalsePublicKey = Buffer.from('031891f11182f69dfd67dc190ccd649445182c6474f69c9f3885c99733b056fb53e1a30b90b6d2a2624449fda885adcba50334024b20081b07f95f3cc92a93dbedccf75890cd7ac088b0810058c272ef25a4028875342c5dfc36b54f156cd26b69109625e5374bc689c79196d98ccc9ad5b7099e6484', 'hex')
+      const found = ecies.decrypt(largerSecret, encryptedWithFalsePublicKey)
+
+      return expect(found).to.be.rejectedWith(`Not valid ciphertext. A valid ciphertext would begin with 4`)
+    })
+    it(`should NOT accept an encrypted msg smaller than ${metaLength} bytes`, () => {
+      const largerSecret = Buffer.from('b9fc3b425d6c1745b9c963c97e6e1d4c1db7a093a36e0cf7c0bf85dc1130b8a05773623846', 'hex')
+      const smallerEncrypted = Buffer.from('041891f11182f69dfd67dc190c1a30b90b6d2a2624449fda885adcba50334024b20081b07f95f3cc92a93dbedccf75890cd7ac088b0810058c272ef25a4028875342c5dfc36b54f156cd26b69109625e5374bc689c79196d98ccc9ad5b7099e6484', 'hex')
+      const found = ecies.decrypt(largerSecret, smallerEncrypted)
+
+      return expect(found).to.be.rejectedWith(`Invalid Ciphertext. Data is too small. It should ba at least 113`)
+    })
+  })
+  describe('encrypt and decrypte', () => {
+    it('should be invariant', async () => {
+      const pub = Buffer.from('04e315a987bd79b9f49d3a1c8bd1ef5a401a242820d52a3f22505da81dfcd992cc5c6e2ae9bc0754856ca68652516551d46121daa37afc609036ab5754fe7a82a3', 'hex')
+      const expected = 'ROOOT'
+      const msg = Buffer.from(expected)
+      const encrypted = await ecies.encrypt(pub, msg)
+      const secret = Buffer.from('b9fc3b425d6c1745b9c963c97e6e1d4c1db7a093a36e0cf7c0bf85dc1130b8a0', 'hex')
+      const decrypted = await ecies.decrypt(secret, encrypted)
+
+      return decrypted.toString().should.eqls(expected)
+    })
+  })
+  describe('sign and verify', () => {
+    it('shoud be invariant', async () => {
+      const expected = 'ROOOT'
+      const msg = Buffer.from(expected)
+      const secret = Buffer.from('b9fc3b425d6c1745b9c963c97e6e1d4c1db7a093a36e0cf7c0bf85dc1130b8a0', 'hex')
+      const signed = await ecies.sign(secret, msg)
+      const pub = Buffer.from('04e315a987bd79b9f49d3a1c8bd1ef5a401a242820d52a3f22505da81dfcd992cc5c6e2ae9bc0754856ca68652516551d46121daa37afc609036ab5754fe7a82a3', 'hex')
+      const found = await ecies.verify(pub, msg, signed)
+
+      return expect(found).to.be.null
+    })
   })
 })
-
-ecies.encrypt(
-  Buffer.from('04e315a987bd79b9f49d3a1c8bd1ef5a401a242820d52a3f22505da81dfcd992cc5c6e2ae9bc0754856ca68652516551d46121daa37afc609036ab5754fe7a82a3', 'hex'),
-  Buffer.from("Edgewhere")
-).then(crypted => {
-  console.log('lalalalalalalal')
-  console.log(crypted.toString('base64'))
-})
-
-ecies.decrypt(
-  Buffer.from('b9fc3b425d6c1745b9c963c97e6e1d4c1db7a093a36e0cf7c0bf85dc1130b8a0', 'hex'),
-  Buffer.from('BC4wAFMjg2/L88dxY35/5xHWDdfz66vHEveZdns7dcdxhPs02xZjXFiracGAOOeZBU3N+5llXlfaBr3IZ6RJHsyO5wSklsas5yDiR20AKp0GcQl4Pg1jSKn5jg5hYZZmn+nYVYl8dhzWaX2CaDowVvSRp1wmLHhE34w=', 'base64')
-).then(decrypted => {
-  console.log('lolololololoo')
-  console.log(decrypted.toString())
-  console.log(decrypted.toString() === 'Edgewhere')
-}).catch(err => 
-  console.error(err)
-)
