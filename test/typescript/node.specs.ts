@@ -330,6 +330,16 @@ describe('ecies', () => {
 
       return decrypted.toString().should.eqls(expected)
     })
+    it('should fail to decrypt if encrypted with another keypair', async () => {
+      const msg = Buffer.from('Edgewhere')
+      const owner1Pub = Buffer.from('04e315a987bd79b9f49d3a1c8bd1ef5a401a242820d52a3f22505da81dfcd992cc5c6e2ae9bc0754856ca68652516551d46121daa37afc609036ab5754fe7a82a3', 'hex')
+      
+      const encrypted = await ecies.encrypt(owner1Pub, msg)
+
+      const owner2Secret = Buffer.from('b9fc3b425d6c1745b9c963c97e6e1d4c')
+      const decrypted = ecies.decrypt(owner2Secret, encrypted)
+      return expect(decrypted).to.be.rejectedWith('Incorrect MAC')
+    })
   })
   describe('sign and verify', () => {
     it('shoud be invariant', async () => {

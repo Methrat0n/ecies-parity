@@ -5,7 +5,6 @@
 import { createHash, BinaryLike, createCipheriv, createDecipheriv, createHmac, randomBytes } from 'crypto'
 import * as secp256k1 from 'secp256k1'
 import { ec as EC } from 'elliptic'
-import { rejects } from 'assert'
 
 const ec = new EC('secp256k1')
 
@@ -203,9 +202,9 @@ export const decrypt = (privateKey: Buffer, encrypted: Buffer): Promise<Buffer> 
       const encryptionKey = hash.slice(0, 16)
       const macKey = sha256(hash.slice(16))
       const currentHMAC = hmacSha256(macKey, cipherAndIv)
-
+      
       if(!equalConstTime(currentHMAC, msgMac))
-        reject('Incorrect MAC')
+        return Promise.reject(new Error('Incorrect MAC'))
 
       // decrypt message
       const plainText = aes128CtrDecrypt(iv, encryptionKey, ciphertext)
