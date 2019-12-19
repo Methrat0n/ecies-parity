@@ -385,6 +385,22 @@ describe('ecies', function () {
                 }
             });
         }); });
+        it('should fail to decrypt if encrypted with another keypair', function () { return __awaiter(void 0, void 0, void 0, function () {
+            var msg, owner1Pub, encrypted, owner2Secret, decrypted;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        msg = Buffer.from('Edgewhere');
+                        owner1Pub = Buffer.from('04e315a987bd79b9f49d3a1c8bd1ef5a401a242820d52a3f22505da81dfcd992cc5c6e2ae9bc0754856ca68652516551d46121daa37afc609036ab5754fe7a82a3', 'hex');
+                        return [4 /*yield*/, ecies.encrypt(owner1Pub, msg)];
+                    case 1:
+                        encrypted = _a.sent();
+                        owner2Secret = Buffer.from('b9fc3b425d6c1745b9c963c97e6e1d4c');
+                        decrypted = ecies.decrypt(owner2Secret, encrypted);
+                        return [2 /*return*/, expect(decrypted).to.be.rejectedWith('Incorrect MAC')];
+                }
+            });
+        }); });
     });
     describe('sign and verify', function () {
         it('shoud be invariant', function () { return __awaiter(void 0, void 0, void 0, function () {

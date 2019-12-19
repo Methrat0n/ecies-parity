@@ -204,7 +204,7 @@ exports.decrypt = function (privateKey, encrypted) { return new Promise(function
             var macKey = sha256(hash.slice(16));
             var currentHMAC = hmacSha256(macKey, cipherAndIv_1);
             if (!equalConstTime(currentHMAC, msgMac_1))
-                reject('Incorrect MAC');
+                return Promise.reject(new Error('Incorrect MAC'));
             // decrypt message
             var plainText = aes128CtrDecrypt(iv_1, encryptionKey, ciphertext_1);
             return Buffer.from(new Uint8Array(plainText));
