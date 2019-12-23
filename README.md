@@ -1,3 +1,9 @@
+# Deprecation notice
+
+Developement continue on https://github.com/edgewhere/ecies-geth
+
+You can `npm i ecies-geth` or see the current code there.
+
 # ecies-parity
 
 This is a javaScript Elliptic curve Integrated Encryption Scheme (ECIES) library for both `browserify` and `node.js`. This implementation mimics [parity](https://www.parity.io/)'s rust implementation to allow dapps to encrypt/decrypt messages from parity's extended [JSON RPC API](https://wiki.parity.io/JSONRPC-parity-module.html). 
